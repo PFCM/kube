@@ -1,0 +1,52 @@
+apiVersion:         ceph.rook.io/v1
+kind:               CephCluster
+metadata:
+  name:             rook-ceph
+  namespace:        rook-ceph
+spec:
+  cephVersion:
+    image:          ceph/ceph:v14.2
+  # TODO:           this is the actual path on the node
+  dataDirHostPath:  /var/lib/rook
+  mon:
+    count:          3
+  dashboard:        # can we offload this to prometheus/grafana
+    enabled:        true
+  storage:
+    useAllNodes:    false
+    useAllDevices:  false
+    directories:  # NOTE: ideally we would give it a whole device on its own.
+    # presumably this is where the stuff goes on the node?
+    # how does this interact with dataDirHostPath?
+    - path:         /var/lib/rook
+    # workaround for one node with a different config.
+    # NOTE:         directories with bluestore apparently don't GC properly, so this
+    # needs to be a temporary workaround.
+    nodes:
+    - name:         mcnugget
+      config:
+        storeType:  bluestore
+    - name:         french-fry
+    - name:         hash-brown
+
+---
+apiVersion:         ceph.rook.io/v1
+kind:               CephBlockPool
+metadata:
+  name:             replicapool
+  namespace:        rook-ceph
+spec:
+  failureDomain:    host
+  replicated:
+    size:           2
+---
+apiVersion:         storage.k8s.io/v1
+kind:               StorageClass
+metadata:
+  name:             rook-ceph-block
+provisioner:        ceph.rook.io/block
+parameters:
+  blockPool:        replicapool
+  clusterNamespace: rook-ceph
+  fstype:           xfs
+reclaimPolicy:      Retain
