@@ -1,0 +1,374 @@
+# namespace, keep it organised
+apiVersion:                                     v1
+kind:                                           Namespace
+metadata:
+  name:                                         monitoring
+---
+# config
+apiVersion:                                     v1
+kind:                                           ConfigMap
+metadata:
+  name:                                         prometheus-server-conf
+  labels:
+    name:                                       prometheus-server-conf
+  namespace:                                    monitoring
+data:
+  prometheus.rules:                             |-
+    groups:
+    - name:                                     NodeDown
+      rules:
+      - alert:                                  Node Down
+        expr:                                   up{job_name="kubernetes-nodes"} != 1
+        for:                                    5m
+        labels:
+          severity:                             slack
+        annotations:
+          summary:                              We've lost one!
+    - name:                                     HighContainerMemory
+      rules:
+      - alert:                                  High Container Memory
+        expr:                                   container_memory_usage_bytes{container!="POD",container!=""} > 3000000000
+        for:                                    5m
+        labels:
+          severity:                             slack
+        annotations:
+          summary:                              The memory is high?
+  prometheus.yml:                               |-
+    global:
+      scrape_interval:                          60s
+      scrape_timeout:                           45s
+      evaluation_interval:                      60s
+    rule_files:
+      - /etc/prometheus/prometheus.rules
+    alerting:
+      alertmanagers:
+      - scheme:                                 http
+        static_configs:
+        - targets:
+          - "localhost:9093"
+    scrape_configs:
+      - job_name:                               'kubernetes-apiservers'
+        kubernetes_sd_configs:
+        - role:                                 endpoints
+        scheme:                                 https
+        tls_config:
+          ca_file:                              /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file:                      /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+        - source_labels:                        [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+          action:                               keep
+          regex:                                default;kubernetes;https
+      - job_name:                               'kubernetes-nodes'
+        scheme:                                 https
+        tls_config:
+          ca_file:                              /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file:                      /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+        - role:                                 node
+        relabel_configs:
+        - action:                               labelmap
+          regex:                                __meta_kubernetes_node_label_(.+)
+        - target_label:                         __address__
+          replacement:                          kubernetes.default.svc:443
+        - source_labels:                        [__meta_kubernetes_node_name]
+          regex:                                (.+)
+          target_label:                         __metrics_path__
+          replacement:                          /api/v1/nodes/${1}/proxy/metrics
+      - job_name:                               'kubernetes-pods'
+        kubernetes_sd_configs:
+        - role:                                 pod
+        relabel_configs:
+        - source_labels:                        [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action:                               keep
+          regex:                                true
+        - source_labels:                        [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action:                               replace
+          target_label:                         __metrics_path__
+          regex:                                (.+)
+        - source_labels:                        [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action:                               replace
+          regex:                                ([^:]+)(?::\d+)?;(\d+)
+          replacement:                          $1:$2
+          target_label:                         __address__
+        - action:                               labelmap
+          regex:                                __meta_kubernetes_pod_label_(.+)
+        - source_labels:                        [__meta_kubernetes_namespace]
+          action:                               replace
+          target_label:                         kubernetes_namespace
+        - source_labels:                        [__meta_kubernetes_pod_name]
+          action:                               replace
+          target_label:                         kubernetes_pod_name
+      - job_name:                               'kubernetes-cadvisor'
+        scheme:                                 https
+        tls_config:
+          ca_file:                              /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file:                      /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+        - role:                                 node
+        relabel_configs:
+        - action:                               labelmap
+          regex:                                __meta_kubernetes_node_label_(.+)
+        - target_label:                         __address__
+          replacement:                          kubernetes.default.svc:443
+        - source_labels:                        [__meta_kubernetes_node_name]
+          regex:                                (.+)
+          target_label:                         __metrics_path__
+          replacement:                          /api/v1/nodes/${1}/proxy/metrics/cadvisor
+      - job_name:                               'kubernetes-service-endpoints'
+        kubernetes_sd_configs:
+        - role:                                 endpoints
+        relabel_configs:
+        - source_labels:                        [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+          action:                               keep
+          regex:                                true
+        - source_labels:                        [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+          action:                               replace
+          target_label:                         __scheme__
+          regex:                                (https?)
+        - source_labels:                        [__meta_kubernetes_service_annotation_prometheus_io_path]
+          action:                               replace
+          target_label:                         __metrics_path__
+          regex:                                (.+)
+        - source_labels:                        [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+          action:                               replace
+          target_label:                         __address__
+          regex:                                ([^:]+)(?::\d+)?;(\d+)
+          replacement:                          $1:$2
+        - action:                               labelmap
+          regex:                                __meta_kubernetes_service_label_(.+)
+        - source_labels:                        [__meta_kubernetes_namespace]
+          action:                               replace
+          target_label:                         kubernetes_namespace
+        - source_labels:                        [__meta_kubernetes_service_name]
+          action:                               replace
+          target_label:                         kubernetes_name
+  alertmanager.yml:                             |-
+    global:
+      resolve_timeout:                          5m
+    templates:                                  []
+    route:
+      receiver:                                 slack
+    receivers:
+    - name:                                     slack
+      slack_configs:
+      - send_resolved:                          true
+        channel:                                ????
+        icon_emoji:                             🌋
+        api_url:                                https://TODO.lol/
+    inhibit_rules:                              []
+---
+# grafana config
+apiVersion:                                     v1
+kind:                                           ConfigMap
+metadata:
+  name:                                         grafana-server-conf
+  labels:
+    name:                                       grafana-server-conf
+  namespace:                                    monitoring
+data:
+  grafana.ini:                                  |-
+    [server]
+    protocol = http
+    root_url = %(protocol)s://$(domain)s/grafana/
+    serve_from_subpath = true
+---
+# Set up RBAC under namespace monitoring, so prometheus can get metrics and list
+# pods etc.
+apiVersion:                                     rbac.authorization.k8s.io/v1beta1
+kind:                                           ClusterRole
+metadata:
+  name:                                         prometheus
+rules:
+- apiGroups:                                    [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs:                                        ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs:                                        ["get", "list", "watch"]
+- nonResourceURLs:                              ["/metrics"]
+  verbs:                                        ["get"]
+---
+# Volume claims for persistent storage
+apiVersion:                                     v1
+kind:                                           PersistentVolumeClaim
+metadata:
+  name:                                         prometheus-pvc
+  namespace:                                    monitoring
+spec:
+  storageClassName:                             rook-ceph-block
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage:                                  15Gi
+---
+apiVersion:                                     v1
+kind:                                           PersistentVolumeClaim
+metadata:
+  name:                                         alertmanager-pvc
+  namespace:                                    monitoring
+spec:
+  storageClassName:                             rook-ceph-block
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage:                                  5Gi
+---
+apiVersion:                                     v1
+kind:                                           PersistentVolumeClaim
+metadata:
+  name:                                         grafana-pvc
+  namespace:                                    monitoring
+spec:
+  storageClassName:                             rook-ceph-block
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage:                                  10Gi
+---
+apiVersion:                                     rbac.authorization.k8s.io/v1beta1
+kind:                                           ClusterRoleBinding
+metadata:
+  name:                                         prometheus
+roleRef:
+  apiGroup:                                     rbac.authorization.k8s.io
+  kind:                                         ClusterRole
+  name:                                         prometheus
+subjects:
+- kind:                                         ServiceAccount
+  name:                                         default
+  namespace:                                    monitoring
+---
+# the actual deployment
+apiVersion:                                     apps/v1
+kind:                                           Deployment
+metadata:
+  name:                                         prometheus
+  namespace:                                    monitoring
+spec:
+  replicas:                                     1
+  selector:
+    matchLabels:
+      app:                                      prometheus-server
+  template:
+    metadata:
+      labels:
+        app:                                    prometheus-server
+    spec:
+      securityContext:
+        fsGroup:                                2000
+        runAsUser:                              1000
+        runAsNonRoot:                           true
+      containers:
+      - name:                                   prometheus
+        image:                                  prom/prometheus:v2.12.0
+        args:
+        - "--config.file=/etc/prometheus/prometheus.yml"
+        - "--storage.tsdb.path=/prometheus/"
+        ports:
+        - containerPort:                        9090
+        volumeMounts:
+        - name:                                 prometheus-config-volume
+          mountPath:                            /etc/prometheus/
+        - name:                                 prometheus-storage-volume
+          mountPath:                            /prometheus/
+      - name:                                   alertmanager
+        image:                                  prom/alertmanager:v0.18.0
+        args:
+          - "--config.file=/etc/alertmanager/alertmanager.yml"
+          - "--storage.path=/alertmanager"
+          - "--web.external-url=http://loljk/alertmanager"
+          - "--web.route-prefix=/alertmanager"
+        ports:
+        - name:                                 alertmanager
+          containerPort:                        9093
+        volumeMounts:
+        - name:                                 prometheus-config-volume
+          mountPath:                            /etc/alertmanager/
+        - name:                                 alertmanager-storage-volume
+          mountPath:                            /alertmanager/
+      - name:                                   grafana
+        image:                                  grafana/grafana:6.6.0
+        args:
+          - "--config=/etc/grafana/conf/grafana.ini"
+        ports:
+        - containerPort:                        3000
+        volumeMounts:
+        - name:                                 grafana-config-volume
+          mountPath:                            /etc/grafana/conf
+        - name:                                 grafana-pvc-volume
+          mountPath:                            /var/lib/grafana
+      volumes:
+      - name:                                   prometheus-config-volume
+        configMap:
+          defaultMode:                          420
+          name:                                 prometheus-server-conf
+      - name:                                   grafana-config-volume
+        configMap:
+          defaultMode:                          420
+          name:                                 grafana-server-conf
+      - name:                                   prometheus-storage-volume
+        persistentVolumeClaim:
+          claimName:                            prometheus-pvc
+      - name:                                   alertmanager-storage-volume
+        persistentVolumeClaim:
+          claimName:                            alertmanager-pvc
+      - name:                                   grafana-pvc-volume
+        persistentVolumeClaim:
+          claimName:                            grafana-pvc
+---
+# And the service to expose it
+apiVersion:                                     v1
+kind:                                           Service
+metadata:
+  name:                                         prometheus-service
+  namespace:                                    monitoring
+spec:
+  type:                                         NodePort
+  selector:
+    app:                                        prometheus-server
+  ports:
+  - port:                                       9090
+    targetPort:                                 9090
+    name:                                       prometheus
+  - port:                                       9093
+    targetPort:                                 9093
+    name:                                       alertmanager
+  - port:                                       3000
+    targetPort:                                 3000
+    name:                                       grafana
+---
+# To try and access it externally we need to configure an ingress
+apiVersion:                                     networking.k8s.io/v1beta1
+kind:                                           Ingress
+metadata:
+  name:                                         prometheus-ingress
+  namespace:                                    monitoring
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex:      "true"
+spec:
+  rules:
+  - http:
+      paths:
+      - path:                                   /(-?)(.*)
+        backend:
+          serviceName:                          prometheus-service
+          servicePort:                          9090
+      - path:                                   /alertmanager(/|$)(.*)
+        backend:
+          serviceName:                          prometheus-service
+          servicePort:                          9093
+      - path:                                   /grafana(/|$)(.*)
+        backend:
+          serviceName:                          prometheus-service
+          servicePort:                          3000
