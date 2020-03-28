@@ -2,7 +2,7 @@
 
 set -e
 echo "~~~~~~~~adding metallb~~~~~~~~~~~"
-kubectl apply -f https://raw.githubusercontent.com/google/metallb/v0.8.1/manifests/metallb.yaml --wait
+kubectl apply -f metal-v0.9.3.yaml --wait
 echo "~~~~~~~~~configuring~~~~~~~~~~~~~"
 kubectl apply -f metal-config.yaml
 echo "~~~~~~adding nginx-ingress~~~~~~~"
