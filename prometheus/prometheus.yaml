@@ -255,6 +255,8 @@ metadata:
   name:                                         prometheus
   namespace:                                    monitoring
 spec:
+  strategy:
+    type:                                       Recreate
   replicas:                                     1
   selector:
     matchLabels:
@@ -297,7 +299,7 @@ spec:
         - name:                                 alertmanager-storage-volume
           mountPath:                            /alertmanager/
       - name:                                   grafana
-        image:                                  grafana/grafana:6.6.0
+        image:                                  grafana/grafana:8.0.4
         args:
           - "--config=/etc/grafana/conf/grafana.ini"
         ports:
